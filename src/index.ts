@@ -12,6 +12,7 @@ import { hideBin } from "yargs/helpers";
 import { createAuthenticator } from "./auth.js";
 import { logger } from "./logger.js";
 import { getOrgTenant } from "./org-tenants.js";
+import { getProxyConfig } from "./proxy.js";
 //import { configurePrompts } from "./prompts.js";
 import { configureAllTools } from "./tools.js";
 import { UserAgentComposer } from "./useragent.js";
@@ -68,7 +69,8 @@ function getAzureDevOpsClient(getAzureDevOpsToken: () => Promise<string>, userAg
   return async () => {
     const accessToken = await getAzureDevOpsToken();
     const authHandler = getBearerHandler(accessToken);
-    const connection = new WebApi(orgUrl, authHandler, undefined, {
+    const proxyConfig = getProxyConfig();
+    const connection = new WebApi(orgUrl, authHandler, proxyConfig ? { proxy: proxyConfig } : undefined, {
       productName: "AzureDevOps.MCP",
       productVersion: packageVersion,
       userAgent: userAgentComposer.userAgent,

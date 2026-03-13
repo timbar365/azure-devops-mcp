@@ -4,6 +4,7 @@
 import { jest } from "@jest/globals";
 import fs, { readFile, writeFile } from "fs/promises";
 import { getOrgTenant } from "../../src/org-tenants";
+import * as proxyModule from "../../src/proxy";
 
 jest.mock("fs/promises");
 jest.mock("../../src/logger.js", () => ({
@@ -14,18 +15,20 @@ jest.mock("../../src/logger.js", () => ({
     debug: jest.fn(),
   },
 }));
+jest.mock("../../src/proxy.js", () => ({
+  proxyFetch: jest.fn(),
+}));
 
-type FetchMock = jest.Mock<typeof fetch>;
+type ProxyFetchMock = jest.MockedFunction<typeof proxyModule.proxyFetch>;
 
 describe("getOrgTenant", () => {
   const orgName = "testorg";
-  let mockFetch: FetchMock;
+  let mockProxyFetch: ProxyFetchMock;
   let mockReadFile: jest.SpiedFunction<typeof readFile>;
   let mockWriteFile: jest.SpiedFunction<typeof writeFile>;
 
   beforeEach(() => {
-    mockFetch = jest.fn() as FetchMock;
-    global.fetch = mockFetch;
+    mockProxyFetch = proxyModule.proxyFetch as ProxyFetchMock;
 
     mockReadFile = jest.spyOn(fs, "readFile");
     mockWriteFile = jest.spyOn(fs, "writeFile");
@@ -49,112 +52,102 @@ describe("getOrgTenant", () => {
 
     expect(result).toBe(cachedTenantId);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockProxyFetch).not.toHaveBeenCalled();
   });
 
   it("should fetch from API when cache is broken and saves the result", async () => {
     const fetchedTenantId = "fetched-tenant-guid";
     mockReadFile.mockRejectedValue(new Error("Cache file corrupted"));
-    mockFetch.mockResolvedValue({
+    mockProxyFetch.mockResolvedValue({
       status: 404,
-      headers: {
-        get: () => {
-          return fetchedTenantId;
-        },
-      },
-    } as unknown as Response);
+      headers: { "x-vss-resourcetenant": fetchedTenantId },
+      body: "",
+    });
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(fetchedTenantId);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
   });
 
   it("returns fetched tenant despite failure to save cache", async () => {
     const fetchedTenantId = "fetched-tenant-guid";
     mockReadFile.mockResolvedValue("{}");
-    mockFetch.mockResolvedValue({
+    mockProxyFetch.mockResolvedValue({
       status: 404,
-      headers: {
-        get: () => {
-          return fetchedTenantId;
-        },
-      },
-    } as unknown as Response);
+      headers: { "x-vss-resourcetenant": fetchedTenantId },
+      body: "",
+    });
     mockWriteFile.mockRejectedValue(new Error("Disk full"));
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(fetchedTenantId);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
   });
 
   it("should return undefined when cache is empty and fetch fails", async () => {
     mockReadFile.mockResolvedValue("{}");
-    mockFetch.mockRejectedValue(new Error("Network error"));
+    mockProxyFetch.mockRejectedValue(new Error("Network error"));
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBeUndefined();
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it("should fetch from API when cache is empty and cache the successful result", async () => {
     const fetchedTenantId = "fresh-tenant-guid";
     mockReadFile.mockResolvedValue("{}");
-    mockFetch.mockResolvedValue({
+    mockProxyFetch.mockResolvedValue({
       status: 404,
-      headers: {
-        get: () => {
-          return fetchedTenantId;
-        },
-      },
-    } as unknown as Response);
+      headers: { "x-vss-resourcetenant": fetchedTenantId },
+      body: "",
+    });
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(fetchedTenantId);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
   });
 
   it("should return undefined when fetch from API fails", async () => {
     mockReadFile.mockResolvedValue("{}");
-    mockFetch.mockResolvedValue({
+    mockProxyFetch.mockResolvedValue({
       status: 500,
-    } as unknown as Response);
+      headers: {},
+      body: "",
+    });
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(undefined);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).toHaveBeenCalledTimes(0);
   });
 
   it("should return undefined when fetch from API has no tenant ID in the headers", async () => {
     mockReadFile.mockResolvedValue("{}");
-    mockFetch.mockResolvedValue({
+    mockProxyFetch.mockResolvedValue({
       status: 404,
-      headers: {
-        get: () => {
-          return undefined;
-        },
-      },
-    } as unknown as Response);
+      headers: {},
+      body: "",
+    });
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(undefined);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).toHaveBeenCalledTimes(0);
   });
 
@@ -167,13 +160,13 @@ describe("getOrgTenant", () => {
       },
     };
     mockReadFile.mockResolvedValue(JSON.stringify(expiredCacheData));
-    mockFetch.mockRejectedValue(new Error("API unavailable"));
+    mockProxyFetch.mockRejectedValue(new Error("API unavailable"));
 
     const result = await getOrgTenant(orgName);
 
     expect(result).toBe(expiredTenantId);
     expect(mockReadFile).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, { method: "HEAD" });
+    expect(mockProxyFetch).toHaveBeenCalledWith(`https://vssps.dev.azure.com/${orgName}`, "HEAD");
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { readFile, writeFile } from "fs/promises";
 import { logger } from "./logger.js";
 import { homedir } from "os";
 import { join } from "path";
+import { proxyFetch } from "./proxy.js";
 
 interface OrgTenantCacheEntry {
   tenantId: string;
@@ -38,13 +39,13 @@ async function fetchTenantFromApi(orgName: string): Promise<string> {
   const url = `https://vssps.dev.azure.com/${orgName}`;
 
   try {
-    const response = await fetch(url, { method: "HEAD" });
+    const response = await proxyFetch(url, "HEAD");
 
     if (response.status !== 404) {
       throw new Error(`Expected status 404, got ${response.status}`);
     }
 
-    const tenantId = response.headers.get("x-vss-resourcetenant");
+    const tenantId = response.headers["x-vss-resourcetenant"];
     if (!tenantId) {
       throw new Error("x-vss-resourcetenant header not found in response");
     }

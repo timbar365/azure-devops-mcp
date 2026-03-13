@@ -5,6 +5,7 @@ import { AzureCliCredential, ChainedTokenCredential, DefaultAzureCredential, Tok
 import { AccountInfo, AuthenticationResult, PublicClientApplication } from "@azure/msal-node";
 import open from "open";
 import { logger } from "./logger.js";
+import { getMsalNetworkClient } from "./proxy.js";
 
 const scopes = ["499b84ac-1321-427f-aa17-267ca6975798/.default"];
 
@@ -27,11 +28,13 @@ class OAuthAuthenticator {
       logger.debug(`OAuthAuthenticator: Using default common authority`);
     }
 
+    const msalNetworkClient = getMsalNetworkClient();
     this.publicClientApp = new PublicClientApplication({
       auth: {
         clientId: OAuthAuthenticator.clientId,
         authority,
       },
+      ...(msalNetworkClient ? { system: { networkClient: msalNetworkClient } } : {}),
     });
     logger.debug(`OAuthAuthenticator: Initialized with clientId='${OAuthAuthenticator.clientId}'`);
   }
